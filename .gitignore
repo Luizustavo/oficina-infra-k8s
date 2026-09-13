@@ -1,0 +1,35 @@
+# Cache local de providers e módulos
+.terraform/
+.terraform.lock.hcl.bak
+
+# State — mora no S3. Se algum destes aparecer aqui, algo saiu errado:
+# provavelmente um `terraform init` sem o backend configurado.
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+
+# Valores reais de variáveis (podem conter dados sensíveis)
+*.tfvars
+!*.tfvars.example
+
+# Arquivos de plan — são binários e podem conter valores sensíveis
+*.tfplan
+tfplan
+tfplan-*.out
+plan.txt
+
+# Logs de crash
+crash.log
+crash.*.log
+
+# Overrides locais
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Sistema operacional / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

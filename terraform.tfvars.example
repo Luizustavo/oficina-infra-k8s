@@ -1,0 +1,13 @@
+# Copie para terraform.tfvars (ignorado pelo git) e ajuste.
+# Em CI este arquivo não existe: as credenciais vêm do ambiente e
+# aws_profile fica vazio (o default).
+
+aws_region   = "sa-east-1"
+aws_profile  = "oficina-fase2"
+project_name = "oficina-backend"
+
+k3s_instance_type = "t3.small"
+k3s_node_port     = 30080
+
+budget_alert_threshold_usd = 12
+budget_alert_email         = "luizgustavodesouzasantos23@gmail.com"
