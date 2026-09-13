@@ -131,8 +131,10 @@ kubectl get nodes    # o nó deve aparecer como Ready
 | Gatilho | O que roda |
 |---|---|
 | Pull Request para `main` | `fmt -check` → `init` → `validate` → `plan`, com o plan comentado no PR |
-| Push em `main` | `apply` automático, com aprovação manual no Environment `production` |
+| Push em `main` | `apply` automático — é o "deploy automático da branch de produção" exigido pela Fase 3 |
 | `workflow_dispatch` | `plan`, `apply` ou `destroy` sob demanda |
+
+O job de apply roda no Environment `production`. Ele existe mas **está sem required reviewers**, então o apply é de fato automático no merge. Para exigir aprovação humana antes de cada mudança de infraestrutura, adicione reviewers em *Settings → Environments → production* — o pipeline passa a pausar e esperar.
 
 **Secrets necessários** em *Settings → Secrets and variables → Actions*:
 
