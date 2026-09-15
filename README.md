@@ -11,6 +11,22 @@ Este é o **repositório base** do projeto: ele cria a VPC e o security group do
 
 ---
 
+## Deploy ativo
+
+| Recurso | Como obter o valor atual |
+|---|---|
+| IP do nó k3s | `terraform output -raw k3s_instance_public_ip` |
+| Aplicação (NodePort) | `terraform output -raw app_url` |
+| Registro de imagens | `terraform output -raw ecr_repository_url` |
+
+A porta de entrada pública do sistema é o API Gateway, provisionado por [`oficina-lambda-auth`](https://github.com/Luizustavo/oficina-lambda-auth): **https://dzsca8yk0b.execute-api.sa-east-1.amazonaws.com**
+
+Swagger da aplicação: **https://dzsca8yk0b.execute-api.sa-east-1.amazonaws.com/api/docs**
+
+> A infraestrutura é destruída ao final de cada sessão de trabalho para não consumir crédito. Enquanto estiver fora, os endereços não respondem — e alguns mudam a cada novo `apply`. O vídeo de demonstração mostra o ambiente no ar.
+
+---
+
 ## Propósito
 
 | Recurso | Arquivo | Descrição |
@@ -121,6 +137,14 @@ Na sua máquina, salve em `~/.kube/config-k3s`, troque `127.0.0.1` pelo IP públ
 export KUBECONFIG=~/.kube/config-k3s
 kubectl get nodes    # o nó deve aparecer como Ready
 ```
+
+---
+
+## Sobre Dockerfile
+
+Este repositório **não tem Dockerfile, e não deveria ter**. Ele provisiona infraestrutura com Terraform; não há aplicação para empacotar aqui.
+
+O `Dockerfile` da aplicação vive em [`oficina-backend`](https://github.com/Luizustavo/oficina-backend/blob/main/Dockerfile), e a imagem construída a partir dele é publicada no ECR que **este** repositório cria.
 
 ---
 
