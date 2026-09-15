@@ -36,7 +36,12 @@ jobs:
   plan:
     name: Plan
     runs-on: ubuntu-latest
-    if: github.event_name != 'workflow_dispatch' || inputs.action == 'plan'
+    # Não roda em push para main: ali o job Apply já planeja e aplica. Os dois
+    # juntos disputavam a trava do state no S3 e um deles morria — foi o que
+    # fez este repositório aparecer vermelho mesmo tendo aplicado com sucesso.
+    if: |
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && inputs.action == 'plan')
     steps:
       - uses: actions/checkout@v4
 
