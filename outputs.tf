@@ -44,13 +44,18 @@ output "connect_via_ssm" {
 }
 
 output "app_url" {
-  description = "Public URL of the app once the Deployment/Service are applied"
+  description = "Cluster entrypoint (Traefik). /api -> OS Service, /api/billing -> Billing, /api/execution -> Execution"
   value       = "http://${aws_eip.k3s_node.public_ip}:${var.k3s_node_port}"
 }
 
 output "ecr_repository_url" {
-  description = "Push Docker images here; referenced by the K8s Deployment manifest"
-  value       = aws_ecr_repository.app.repository_url
+  description = "ECR repository of the OS Service (oficina-backend) — kept for backward compatibility"
+  value       = aws_ecr_repository.service[var.project_name].repository_url
+}
+
+output "ecr_repository_urls" {
+  description = "ECR repository URL of every microservice, keyed by repository name"
+  value       = { for name, repo in aws_ecr_repository.service : name => repo.repository_url }
 }
 
 output "aws_account_id" {

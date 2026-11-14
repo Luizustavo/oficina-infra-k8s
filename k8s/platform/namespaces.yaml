@@ -1,0 +1,26 @@
+# Namespaces da Fase 4. Cada microsserviço vive no seu, junto com o banco
+# que só ele acessa (ADR-009, ADR-012, ADR-013). O namespace `oficina`, do
+# OS Service, continua sendo criado pelo repositório oficina-backend.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: messaging
+  labels:
+    app.kubernetes.io/part-of: oficina
+    oficina/role: platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: billing
+  labels:
+    app.kubernetes.io/part-of: oficina
+    oficina/role: service
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: execution
+  labels:
+    app.kubernetes.io/part-of: oficina
+    oficina/role: service

@@ -47,7 +47,7 @@ resource "aws_security_group" "k3s_node" {
   }
 
   ingress {
-    description = "App NodePort"
+    description = "Cluster entrypoint (Traefik NodePort)"
     from_port   = var.k3s_node_port
     to_port     = var.k3s_node_port
     protocol    = "tcp"
@@ -85,7 +85,7 @@ resource "aws_instance" "k3s_node" {
   associate_public_ip_address = true
 
   root_block_device {
-    volume_size = 20
+    volume_size = var.k3s_root_volume_size
     volume_type = "gp3"
   }
 
@@ -95,7 +95,13 @@ resource "aws_instance" "k3s_node" {
     aws_region     = var.aws_region
     aws_account_id = data.aws_caller_identity.current.account_id
     public_ip      = aws_eip.k3s_node.public_ip
+    k3s_node_port  = var.k3s_node_port
   })
+
+  # O user-data só roda no primeiro boot. Sem isto, mudar o script (por
+  # exemplo, a porta do Traefik) atualizaria o atributo sem efeito nenhum no
+  # nó. Recriar o nó é aceitável: o ambiente já é recriado a cada sessão.
+  user_data_replace_on_change = true
 
   tags = {
     Name = "${var.project_name}-k3s-node"
