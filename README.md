@@ -4,10 +4,12 @@ Infraestrutura de **rede e cluster Kubernetes** do sistema de gestão de oficina
 
 Este é o **repositório base** do projeto: ele cria a VPC e o security group do nó, que os outros repositórios de infraestrutura consomem. Nada mais sobe antes dele.
 
-> Parte do Tech Challenge SOAT — Fase 3. Repositórios irmãos:
+> Parte do Tech Challenge SOAT — Fases 3 e 4. Repositórios irmãos:
 > [`oficina-infra-database`](https://github.com/Luizustavo/oficina-infra-database) ·
 > [`oficina-lambda-auth`](https://github.com/Luizustavo/oficina-lambda-auth) ·
-> [`oficina-backend`](https://github.com/Luizustavo/oficina-backend)
+> [`oficina-backend`](https://github.com/Luizustavo/oficina-backend) (OS Service) ·
+> [`oficina-billing-service`](https://github.com/Luizustavo/oficina-billing-service) ·
+> [`oficina-execution-service`](https://github.com/Luizustavo/oficina-execution-service)
 
 ---
 
@@ -16,8 +18,8 @@ Este é o **repositório base** do projeto: ele cria a VPC e o security group do
 | Recurso | Como obter o valor atual |
 |---|---|
 | IP do nó k3s | `terraform output -raw k3s_instance_public_ip` |
-| Aplicação (NodePort) | `terraform output -raw app_url` |
-| Registro de imagens | `terraform output -raw ecr_repository_url` |
+| Entrada do cluster (Traefik) | `terraform output -raw app_url` |
+| Registros de imagens (um por serviço) | `terraform output ecr_repository_urls` |
 
 A porta de entrada pública do sistema é o API Gateway, provisionado por [`oficina-lambda-auth`](https://github.com/Luizustavo/oficina-lambda-auth): **https://dzsca8yk0b.execute-api.sa-east-1.amazonaws.com**
 
@@ -32,8 +34,10 @@ Swagger da aplicação: **https://dzsca8yk0b.execute-api.sa-east-1.amazonaws.com
 | Recurso | Arquivo | Descrição |
 |---|---|---|
 | VPC + subnets | `vpc.tf` | 1 VPC, 2 subnets públicas (nó k3s) e 2 privadas (RDS), sem NAT Gateway |
-| Nó Kubernetes | `ec2.tf` | 1 EC2 rodando k3s via user-data, com Elastic IP fixo, IAM role de leitura no ECR e acesso por SSM (sem SSH) |
-| Registro de imagens | `ecr.tf` | ECR da imagem Docker da aplicação, com lifecycle mantendo só as 10 últimas |
+| Nó Kubernetes | `ec2.tf` | 1 EC2 `t3.medium` rodando k3s via user-data, com Elastic IP fixo, IAM role de leitura no ECR e acesso por SSM (sem SSH) |
+| Porta de entrada do cluster | `k3s-user-data.sh.tpl` | Traefik (o ingress que já vem no k3s) em NodePort `30080`, roteando por caminho para os três microsserviços |
+| Registro de imagens | `ecr.tf` | Um ECR por microsserviço (`oficina-backend`, `oficina-billing-service`, `oficina-execution-service`), com lifecycle mantendo só as 10 últimas |
+| Manifestos de plataforma | `k8s/platform/` | Namespaces dos serviços e, a partir da Fase 4, o RabbitMQ — aplicados pelo workflow `platform.yml` |
 | Alerta de orçamento | `budget.tf` | AWS Budgets — e-mail quando o gasto do mês passa de 50% e 100% do limite |
 
 ## Arquitetura deste repositório
@@ -44,17 +48,17 @@ flowchart TB
         subgraph VPC["VPC 10.0.0.0/16"]
             IGW["Internet Gateway"]
             subgraph PUB["Subnets públicas · 10.0.0.0/24, 10.0.1.0/24"]
-                EC2["EC2 t3.small<br/>k3s single-node<br/>Elastic IP fixo"]
+                EC2["EC2 t3.medium<br/>k3s single-node<br/>Traefik :30080<br/>Elastic IP fixo"]
             end
             subgraph PRIV["Subnets privadas · 10.0.10.0/24, 10.0.11.0/24"]
                 RDSPH["reservado para o RDS<br/>(oficina-infra-database)"]
             end
         end
-        ECR["ECR<br/>imagens da aplicação"]
+        ECR["ECR<br/>uma imagem por microsserviço"]
         BUDGET["AWS Budgets<br/>alerta de custo"]
     end
 
-    USER["Internet"] -->|":6443 kubectl<br/>:30080 app"| IGW
+    USER["Internet"] -->|":6443 kubectl<br/>:30080 Traefik"| IGW
     IGW --> EC2
     EC2 -->|"pull da imagem"| ECR
     EC2 -.->|"5432 · rota local da VPC"| RDSPH
@@ -71,7 +75,21 @@ flowchart TB
 
 O control plane do EKS custa US$ 0,10/hora **sempre**, sem free tier. Uma EC2 `t3.small` e o RDS `db.t4g.micro` são cobertos pelo free tier de conta nova (750h/mês, primeiros 12 meses). Trocando EKS por k3s e removendo o NAT Gateway (o nó fica em subnet pública com IP direto), o custo cai de ~US$ 0,37/hora para perto de zero.
 
-O trade-off: k3s não tem a integração da AWS para criar Load Balancers, então a aplicação é exposta via `NodePort` em `http://<ip-do-nó>:30080`. Na Fase 3 o API Gateway passa a ser a porta de entrada pública, e esse NodePort vira o backend dele.
+O trade-off: k3s não tem a integração da AWS para criar Load Balancers, então o cluster é exposto via `NodePort` em `http://<ip-do-nó>:30080`. Na Fase 3 o API Gateway passou a ser a porta de entrada pública, e esse NodePort virou o backend dele.
+
+### Fase 4: Traefik como porteiro do cluster
+
+Com três microsserviços, uma porta só precisa atender todos. O **Traefik**, que já vem instalado no k3s, assume a porta `30080` e encaminha cada requisição pelo começo do caminho:
+
+| Caminho | Serviço | Namespace |
+|---|---|---|
+| `/api/billing/*` | Billing Service | `billing` |
+| `/api/execution/*` | Execution Service | `execution` |
+| `/api/*` (o resto) | OS Service (`oficina-backend`) | `oficina` |
+
+Cada serviço declara o seu caminho num `Ingress` no próprio repositório. A configuração do Traefik é escrita pelo user-data na pasta de manifestos do k3s (`/var/lib/rancher/k3s/server/manifests/`), que o k3s aplica sozinho ao subir — o cluster já nasce com a porta certa, tirada da mesma variável `k3s_node_port` que libera o security group. Decisão registrada em `ADR-015`.
+
+O nó passou de `t3.small` (2 GB) para **`t3.medium` (4 GB)** e o disco de 20 para **30 GB**: três serviços, RabbitMQ, MongoDB, Redis e o agente do New Relic não cabem em 2 GB.
 
 Decisão registrada em `ADR-001` (repositório `oficina-backend`).
 
@@ -120,8 +138,8 @@ Leva ~2-3 minutos. Outputs relevantes:
 |---|---|
 | `k3s_instance_public_ip` | IP fixo do nó |
 | `connect_via_ssm` | Comando pronto para abrir shell no nó, sem chave SSH |
-| `app_url` | Onde a aplicação responde após o deploy no k8s |
-| `ecr_repository_url` | Destino do `docker push` |
+| `app_url` | Entrada do cluster (Traefik), por trás do API Gateway |
+| `ecr_repository_urls` | Destino do `docker push` de cada microsserviço |
 | `vpc_id`, `private_subnet_ids`, `k3s_node_security_group_id` | **Contrato consumido pelo repo do banco** |
 
 ## Passo 3 — Pegar o kubeconfig
@@ -150,13 +168,23 @@ O `Dockerfile` da aplicação vive em [`oficina-backend`](https://github.com/Lui
 
 ## CI/CD
 
-`.github/workflows/terraform.yml`:
+Dois workflows. `.github/workflows/terraform.yml` cuida da infraestrutura AWS:
 
 | Gatilho | O que roda |
 |---|---|
 | Pull Request para `main` | `fmt -check` → `init` → `validate` → `plan`, com o plan comentado no PR |
 | Push em `main` | `apply` automático — é o "deploy automático da branch de produção" exigido pela Fase 3 |
 | `workflow_dispatch` | `plan`, `apply` ou `destroy` sob demanda |
+
+`.github/workflows/platform.yml` aplica `k8s/platform/` **dentro** do cluster:
+
+| Gatilho | O que roda |
+|---|---|
+| Logo depois de um `apply` do Terraform na `main` | Espera o k3s terminar de instalar, aplica os manifestos e confere que o Traefik está na porta 30080 |
+| Push em `main` mudando `k8s/platform/` | Idem |
+| `workflow_dispatch` | Idem, sob demanda |
+
+Se não houver nó ligado (infra destruída), o workflow termina sem erro e sem fazer nada.
 
 O job de apply roda no Environment `production`. Ele existe mas **está sem required reviewers**, então o apply é de fato automático no merge. Para exigir aprovação humana antes de cada mudança de infraestrutura, adicione reviewers em *Settings → Environments → production* — o pipeline passa a pausar e esperar.
 
@@ -196,11 +224,11 @@ O `budget.tf` manda e-mail se o gasto passar dos limites, mas não confie só ni
 
 | Recurso | US$/hora | Free tier (conta nova)? |
 |---|---|---|
-| EC2 t3.small | ~0,04 | Não (t3.micro seria, mas é pouca RAM para demonstrar o HPA) |
-| EBS 20GB + tráfego | ~0,003 | Parcialmente |
+| EC2 t3.medium | ~0,07 | Não (precisa de 4 GB para os três microsserviços, broker e bancos) |
+| EBS 30GB + tráfego | ~0,004 | Parcialmente |
 | ECR, VPC, subnets, SGs | 0 | Sim |
-| **Total** | **~US$ 0,04-0,05/hora** | |
+| **Total** | **~US$ 0,07-0,08/hora** (sem o RDS) | |
 
 ## API
 
-Este repositório não expõe API. A documentação Swagger da aplicação fica em [`oficina-backend`](https://github.com/Luizustavo/oficina-backend) e responde em `{app_url}/api/docs`.
+Este repositório não expõe API. Cada microsserviço documenta a própria API com Swagger: `/api/docs` (OS Service), `/api/billing/docs` e `/api/execution/docs`, todos atrás do API Gateway.

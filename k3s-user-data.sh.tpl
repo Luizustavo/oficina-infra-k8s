@@ -11,6 +11,28 @@ fi
 mkdir -p /etc/rancher/k3s
 printf "tls-san:\n  - %s\n" "${public_ip}" > /etc/rancher/k3s/config.yaml
 
+# Traefik (o ingress que já vem no k3s) assume a porta de entrada do cluster.
+# Tudo o que é colocado nesta pasta o k3s aplica sozinho ao subir, então o
+# cluster já nasce com o Traefik em NodePort ${k3s_node_port} — a mesma porta
+# que o security group libera e que o API Gateway (oficina-lambda-auth) usa.
+# Ele roteia por caminho: /api/billing, /api/execution e o resto de /api.
+# Ver ADR-015 no repositório oficina-backend.
+mkdir -p /var/lib/rancher/k3s/server/manifests
+cat > /var/lib/rancher/k3s/server/manifests/traefik-config.yaml <<'YAML'
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    service:
+      type: NodePort
+    ports:
+      web:
+        nodePort: ${k3s_node_port}
+YAML
+
 curl -sfL https://get.k3s.io | sh -
 
 # ECR tokens expire every 12h, so a timer keeps containerd's registry auth fresh.

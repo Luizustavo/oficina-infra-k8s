@@ -31,13 +31,27 @@ variable "availability_zones" {
 variable "k3s_instance_type" {
   description = "EC2 instance type running the single-node k3s cluster"
   type        = string
-  default     = "t3.small"
+  # 4 GB: três microsserviços, RabbitMQ, MongoDB, Redis e o agente do New
+  # Relic não cabem nos 2 GB da t3.small usada até a Fase 3.
+  default = "t3.medium"
+}
+
+variable "k3s_root_volume_size" {
+  description = "Root EBS volume size (GB) of the k3s node — holds container images and the local-path volumes of RabbitMQ, MongoDB and Redis"
+  type        = number
+  default     = 30
 }
 
 variable "k3s_node_port" {
-  description = "NodePort the app's Kubernetes Service is exposed on"
+  description = "NodePort of the cluster entrypoint (Traefik). The API Gateway in oficina-lambda-auth targets this port"
   type        = number
   default     = 30080
+}
+
+variable "service_ecr_repositories" {
+  description = "ECR repositories of the microservices besides the OS Service (whose repository is named after project_name)"
+  type        = list(string)
+  default     = ["oficina-billing-service", "oficina-execution-service"]
 }
 
 variable "budget_alert_threshold_usd" {
