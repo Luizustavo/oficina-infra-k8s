@@ -1,0 +1,45 @@
+# Endereço do broker para os três serviços (só dentro do cluster):
+#   amqp://<usuário>:<senha>@rabbitmq.messaging.svc.cluster.local:5672/oficina
+# O painel (15672) não é exposto para fora: acesse com port-forward (README).
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: messaging
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/part-of: oficina
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: amqp
+    - name: management
+      port: 15672
+      targetPort: management
+    - name: prometheus
+      port: 15692
+      targetPort: prometheus
+---
+# Serviço "headless" exigido pelo StatefulSet: dá ao pod um nome de rede
+# estável (rabbitmq-0). O RabbitMQ guarda os dados numa pasta com o nome do
+# nó, então esse nome não pode mudar entre reinícios.
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq-headless
+  namespace: messaging
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/part-of: oficina
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: amqp

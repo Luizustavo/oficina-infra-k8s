@@ -1,0 +1,117 @@
+# RabbitMQ: o broker de mensagens da saga (ADR-010, ADR-011).
+#
+# StatefulSet (e não Deployment) porque o broker guarda estado em disco: filas
+# duráveis e mensagens persistentes precisam sobreviver a um restart do pod.
+# O volume vem do local-path, o provisionador que já vem no k3s (um diretório
+# no disco do nó). Ele some quando a infra é destruída, o que é o esperado.
+#
+# Exchanges e filas NÃO são declaradas aqui: cada serviço declara as suas ao
+# subir. Ver docs/arquitetura/contratos-de-mensagens.md no oficina-backend.
+#
+# O Secret `rabbitmq-credentials` é criado pelo workflow Platform a partir do
+# secret RABBITMQ_PASSWORD do GitHub (ver README).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: messaging
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/part-of: oficina
+spec:
+  serviceName: rabbitmq-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rabbitmq
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq
+        app.kubernetes.io/part-of: oficina
+      annotations:
+        # Métricas do plugin rabbitmq_prometheus (já ativo na imagem), para a
+        # observabilidade da etapa 10.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "15692"
+    spec:
+      # Dá tempo de o broker fechar as filas em ordem ao parar o pod.
+      terminationGracePeriodSeconds: 60
+      # Sem `securityContext.fsGroup` de propósito. Com ele, o Kubernetes
+      # abre a leitura do volume para o grupo a cada montagem, inclusive do
+      # /var/lib/rabbitmq/.erlang.cookie. O RabbitMQ se recusa a subir se esse
+      # arquivo não for exclusivo do dono ("must be accessible by owner only"),
+      # então o pod entra em CrashLoop no primeiro restart. Não é preciso: o
+      # local-path do k3s já cria a pasta do volume com permissão aberta.
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:4.1-management
+          ports:
+            - name: amqp
+              containerPort: 5672
+            - name: management
+              containerPort: 15672
+            - name: prometheus
+              containerPort: 15692
+          env:
+            # Com um usuário padrão diferente de "guest", o guest nem é
+            # criado: ninguém entra com guest/guest.
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: username
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: password
+            # Vhost onde os serviços trabalham. O usuário padrão recebe
+            # permissão total nele.
+            - name: RABBITMQ_DEFAULT_VHOST
+              value: oficina
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rabbitmq
+            - name: config
+              mountPath: /etc/rabbitmq/conf.d/20-oficina.conf
+              subPath: 20-oficina.conf
+          # O primeiro boot leva uns 20-30 s; o startupProbe segura as outras
+          # probes até lá, em vez de o liveness matar o pod no meio do boot.
+          startupProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            periodSeconds: 10
+            timeoutSeconds: 15
+            failureThreshold: 18 # até 3 min
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+            periodSeconds: 15
+            timeoutSeconds: 15
+            failureThreshold: 3
+      volumes:
+        - name: config
+          configMap:
+            name: rabbitmq-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 2Gi

@@ -114,9 +114,33 @@ jobs:
         if: steps.node.outputs.found == 'true'
         run: kubectl wait --for=condition=Ready node --all --timeout=300s
 
+      # A senha do RabbitMQ não pode ir para o git, e o cluster nasce do zero a
+      # cada sessão. Por isso o Secret é recriado aqui, a partir de um secret
+      # do GitHub, sempre com a mesma senha que os serviços usam.
+      - name: Create RabbitMQ credentials
+        if: steps.node.outputs.found == 'true'
+        env:
+          RABBITMQ_USER: oficina
+          RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RABBITMQ_PASSWORD}" ]; then
+            echo "::error::Secret RABBITMQ_PASSWORD não configurado no ambiente production. Veja a seção RabbitMQ do README."
+            exit 1
+          fi
+          kubectl apply -f k8s/platform/namespaces.yaml
+          kubectl create secret generic rabbitmq-credentials -n messaging \
+            --from-literal=username="${RABBITMQ_USER}" \
+            --from-literal=password="${RABBITMQ_PASSWORD}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Apply platform manifests
         if: steps.node.outputs.found == 'true'
         run: kubectl apply -R -f k8s/platform/
+
+      - name: Wait for RabbitMQ
+        if: steps.node.outputs.found == 'true'
+        run: kubectl rollout status statefulset/rabbitmq -n messaging --timeout=300s
 
       # O Traefik é configurado pelo user-data do nó (k3s-user-data.sh.tpl),
       # não por este workflow. Aqui só se confirma que a porta de entrada
@@ -147,5 +171,7 @@ jobs:
             kubectl get ns
             echo
             kubectl get svc -n kube-system traefik
+            echo
+            kubectl get pods,svc,pvc -n messaging
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
