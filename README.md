@@ -95,6 +95,39 @@ Por que `c7i-flex.large`, e não `t3.medium`, que custa metade: a conta AWS do p
 
 Decisão registrada em `ADR-001` (repositório `oficina-backend`).
 
+### Fase 4: RabbitMQ, o broker de mensagens
+
+Os três serviços conversam entre si por mensagens (a saga da `ADR-011`), e quem entrega essas mensagens é o RabbitMQ. Ele roda no namespace `messaging`, com manifestos em `k8s/platform/rabbitmq/`:
+
+| Arquivo | O que define |
+|---|---|
+| `statefulset.yaml` | O broker (`rabbitmq:4.1-management`, 1 réplica, até 512 Mi de memória) e um volume de 2 Gi para as filas sobreviverem a um restart do pod |
+| `service.yaml` | O endereço interno `rabbitmq.messaging.svc.cluster.local` (5672 AMQP, 15672 painel, 15692 métricas) |
+| `configmap.yaml` | Limites de memória e disco, para o broker frear publicações em vez de ser morto por falta de memória |
+
+Ele só é acessível de dentro do cluster. Os serviços se conectam em:
+
+```
+amqp://oficina:<senha>@rabbitmq.messaging.svc.cluster.local:5672/oficina
+```
+
+O último `oficina` é o **vhost**, um "espaço" isolado dentro do broker onde ficam as exchanges e filas do projeto. Exchanges e filas **não** são criadas aqui: cada serviço declara as suas ao subir (contrato em `docs/arquitetura/contratos-de-mensagens.md`, no `oficina-backend`).
+
+**Senha.** O usuário é `oficina`, e a senha vem do secret `RABBITMQ_PASSWORD` do Environment `production`. O workflow `platform.yml` recria o Secret `rabbitmq-credentials` a cada subida do cluster, então a senha é sempre a mesma entre sessões. Use só letras e números (`openssl rand -hex 24`), porque a senha vai dentro de uma URL. O usuário `guest` não existe.
+
+**Painel de administração** (filas, mensagens, consumidores):
+
+```bash
+kubectl port-forward -n messaging svc/rabbitmq 15672:15672
+# abra http://localhost:15672 — usuário oficina, senha do RABBITMQ_PASSWORD
+```
+
+Para ler a senha direto do cluster:
+
+```bash
+kubectl get secret rabbitmq-credentials -n messaging -o jsonpath='{.data.password}' | base64 -d; echo
+```
+
 ## Tecnologias
 
 | Camada | Tecnologia |
@@ -182,7 +215,7 @@ Dois workflows. `.github/workflows/terraform.yml` cuida da infraestrutura AWS:
 
 | Gatilho | O que roda |
 |---|---|
-| Logo depois de um `apply` do Terraform na `main` | Espera o k3s terminar de instalar, aplica os manifestos e confere que o Traefik está na porta 30080 |
+| Logo depois de um `apply` do Terraform na `main` | Espera o k3s terminar de instalar, cria o Secret do RabbitMQ, aplica os manifestos, espera o RabbitMQ ficar pronto e confere que o Traefik está na porta 30080 |
 | Push em `main` mudando `k8s/platform/` | Idem |
 | `workflow_dispatch` | Idem, sob demanda |
 
@@ -196,6 +229,7 @@ O job de apply roda no Environment `production`. Ele existe mas **está sem requ
 |---|---|
 | `AWS_ACCESS_KEY_ID` | Chave do usuário IAM de deploy |
 | `AWS_SECRET_ACCESS_KEY` | Segredo correspondente |
+| `RABBITMQ_PASSWORD` | Senha do usuário `oficina` do RabbitMQ, só letras e números (no Environment `production`) |
 
 **Proteção da branch `main`** (*Settings → Branches → Add rule*): exigir Pull Request, exigir o job `Plan` verde e bloquear push direto.
 

@@ -27,7 +27,11 @@ metadata:
 spec:
   valuesContent: |-
     service:
-      type: NodePort
+      # Desde a versão 41 do chart do Traefik o tipo fica em `service.spec.type`.
+      # A chave antiga, `service.type`, é ignorada sem erro e o serviço
+      # continua como LoadBalancer.
+      spec:
+        type: NodePort
     ports:
       web:
         nodePort: ${k3s_node_port}
