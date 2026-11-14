@@ -33,7 +33,11 @@ variable "k3s_instance_type" {
   type        = string
   # 4 GB: três microsserviços, RabbitMQ, MongoDB, Redis e o agente do New
   # Relic não cabem nos 2 GB da t3.small usada até a Fase 3.
-  default = "t3.medium"
+  #
+  # Não é t3.medium porque a conta AWS está no plano gratuito, que só aceita
+  # tipos elegíveis ao free tier — e o único com 4 GB é a c7i-flex.large.
+  # Lista atual: aws ec2 describe-instance-types --filters Name=free-tier-eligible,Values=true
+  default = "c7i-flex.large"
 }
 
 variable "k3s_root_volume_size" {

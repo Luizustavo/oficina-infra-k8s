@@ -34,7 +34,7 @@ Swagger da aplicação: **https://dzsca8yk0b.execute-api.sa-east-1.amazonaws.com
 | Recurso | Arquivo | Descrição |
 |---|---|---|
 | VPC + subnets | `vpc.tf` | 1 VPC, 2 subnets públicas (nó k3s) e 2 privadas (RDS), sem NAT Gateway |
-| Nó Kubernetes | `ec2.tf` | 1 EC2 `t3.medium` rodando k3s via user-data, com Elastic IP fixo, IAM role de leitura no ECR e acesso por SSM (sem SSH) |
+| Nó Kubernetes | `ec2.tf` | 1 EC2 `c7i-flex.large` (4 GB) rodando k3s via user-data, com Elastic IP fixo, IAM role de leitura no ECR e acesso por SSM (sem SSH) |
 | Porta de entrada do cluster | `k3s-user-data.sh.tpl` | Traefik (o ingress que já vem no k3s) em NodePort `30080`, roteando por caminho para os três microsserviços |
 | Registro de imagens | `ecr.tf` | Um ECR por microsserviço (`oficina-backend`, `oficina-billing-service`, `oficina-execution-service`), com lifecycle mantendo só as 10 últimas |
 | Manifestos de plataforma | `k8s/platform/` | Namespaces dos serviços e, a partir da Fase 4, o RabbitMQ — aplicados pelo workflow `platform.yml` |
@@ -48,7 +48,7 @@ flowchart TB
         subgraph VPC["VPC 10.0.0.0/16"]
             IGW["Internet Gateway"]
             subgraph PUB["Subnets públicas · 10.0.0.0/24, 10.0.1.0/24"]
-                EC2["EC2 t3.medium<br/>k3s single-node<br/>Traefik :30080<br/>Elastic IP fixo"]
+                EC2["EC2 c7i-flex.large<br/>k3s single-node<br/>Traefik :30080<br/>Elastic IP fixo"]
             end
             subgraph PRIV["Subnets privadas · 10.0.10.0/24, 10.0.11.0/24"]
                 RDSPH["reservado para o RDS<br/>(oficina-infra-database)"]
@@ -89,7 +89,9 @@ Com três microsserviços, uma porta só precisa atender todos. O **Traefik**, q
 
 Cada serviço declara o seu caminho num `Ingress` no próprio repositório. A configuração do Traefik é escrita pelo user-data na pasta de manifestos do k3s (`/var/lib/rancher/k3s/server/manifests/`), que o k3s aplica sozinho ao subir — o cluster já nasce com a porta certa, tirada da mesma variável `k3s_node_port` que libera o security group. Decisão registrada em `ADR-015`.
 
-O nó passou de `t3.small` (2 GB) para **`t3.medium` (4 GB)** e o disco de 20 para **30 GB**: três serviços, RabbitMQ, MongoDB, Redis e o agente do New Relic não cabem em 2 GB.
+O nó passou de `t3.small` (2 GB) para **`c7i-flex.large` (4 GB)** e o disco de 20 para **30 GB**: três serviços, RabbitMQ, MongoDB, Redis e o agente do New Relic não cabem em 2 GB.
+
+Por que `c7i-flex.large`, e não `t3.medium`, que custa metade: a conta AWS do projeto está no **plano gratuito**, que só permite criar tipos de instância elegíveis ao free tier. A `t3.medium` é recusada no `RunInstances` (`InvalidParameterCombination: ... not eligible for Free Tier`). Entre os elegíveis em `sa-east-1`, a `c7i-flex.large` é o único com 4 GB (a `m7i-flex.large` tem 8 GB por ~17% a mais).
 
 Decisão registrada em `ADR-001` (repositório `oficina-backend`).
 
@@ -224,10 +226,10 @@ O `budget.tf` manda e-mail se o gasto passar dos limites, mas não confie só ni
 
 | Recurso | US$/hora | Free tier (conta nova)? |
 |---|---|---|
-| EC2 t3.medium | ~0,07 | Não (precisa de 4 GB para os três microsserviços, broker e bancos) |
+| EC2 c7i-flex.large | ~0,13 | Não (é elegível ao free tier, mas a conta paga com créditos; precisa de 4 GB para os três microsserviços, broker e bancos) |
 | EBS 30GB + tráfego | ~0,004 | Parcialmente |
 | ECR, VPC, subnets, SGs | 0 | Sim |
-| **Total** | **~US$ 0,07-0,08/hora** (sem o RDS) | |
+| **Total** | **~US$ 0,14/hora** (sem o RDS) | |
 
 ## API
 
