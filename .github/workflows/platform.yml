@@ -110,9 +110,19 @@ jobs:
         with:
           version: 'latest'
 
+      # O kubeconfig aparece alguns segundos antes de o nó se registrar no
+      # cluster. Sem nenhum nó, o `kubectl wait --all` falha na hora ("no
+      # matching resources found") em vez de esperar, então primeiro espera o
+      # nó existir.
       - name: Wait for the node to be Ready
         if: steps.node.outputs.found == 'true'
-        run: kubectl wait --for=condition=Ready node --all --timeout=300s
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            [ -n "$(kubectl get nodes -o name 2>/dev/null || true)" ] && break
+            echo "Nó ainda não registrado no cluster (tentativa $i/30)…"; sleep 10
+          done
+          kubectl wait --for=condition=Ready node --all --timeout=300s
 
       # A senha do RabbitMQ não pode ir para o git, e o cluster nasce do zero a
       # cada sessão. Por isso o Secret é recriado aqui, a partir de um secret
