@@ -103,7 +103,7 @@ Os três serviços conversam entre si por mensagens (a saga da `ADR-011`), e que
 |---|---|
 | `statefulset.yaml` | O broker (`rabbitmq:4.1-management`, 1 réplica, até 512 Mi de memória) e um volume de 2 Gi para as filas sobreviverem a um restart do pod |
 | `service.yaml` | O endereço interno `rabbitmq.messaging.svc.cluster.local` (5672 AMQP, 15672 painel, 15692 métricas) |
-| `configmap.yaml` | Limites de memória e disco, para o broker frear publicações em vez de ser morto por falta de memória |
+| `configmap.yaml` | Limites de memória e disco, para o broker frear publicações em vez de ser morto por falta de memória, e os plugins ligados (painel, métricas e shovel) |
 
 Ele só é acessível de dentro do cluster. Os serviços se conectam em:
 
@@ -121,6 +121,8 @@ O último `oficina` é o **vhost**, um "espaço" isolado dentro do broker onde f
 kubectl port-forward -n messaging svc/rabbitmq 15672:15672
 # abra http://localhost:15672 — usuário oficina, senha do RABBITMQ_PASSWORD
 ```
+
+Com o plugin de shovel ligado, uma mensagem que caiu numa fila `.dlq` pode voltar para a fila original pelo próprio painel: *Queues* → a fila `.dlq` → *Move messages*. Quando reprocessar, e como, está em `docs/arquitetura/operacao-da-mensageria.md` no `oficina-backend`.
 
 Para ler a senha direto do cluster:
 
