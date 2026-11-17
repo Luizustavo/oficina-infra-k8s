@@ -84,6 +84,9 @@ spec:
             - name: config
               mountPath: /etc/rabbitmq/conf.d/20-oficina.conf
               subPath: 20-oficina.conf
+            - name: config
+              mountPath: /etc/rabbitmq/enabled_plugins
+              subPath: enabled_plugins
           # O primeiro boot leva uns 20-30 s; o startupProbe segura as outras
           # probes até lá, em vez de o liveness matar o pod no meio do boot.
           startupProbe:

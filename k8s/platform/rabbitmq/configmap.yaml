@@ -22,3 +22,9 @@ data:
 
     # Mesma lógica para o disco: o volume tem 2 GiB.
     disk_free_limit.absolute = 200MB
+
+  # Substitui o arquivo da imagem, que liga só management e prometheus. O
+  # shovel permite reprocessar a DLQ pelo painel (Queues > fila .dlq > Move
+  # messages); ver docs/arquitetura/operacao-da-mensageria.md no oficina-backend.
+  enabled_plugins: |
+    [rabbitmq_management,rabbitmq_prometheus,rabbitmq_shovel,rabbitmq_shovel_management].
